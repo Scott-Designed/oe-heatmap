@@ -34,6 +34,16 @@ export function useData(): UseDataResult {
   }, [])
 
   const loadReal = useCallback(async (region: Region) => {
+    // If all months already cached, re-parse instantly without re-fetching
+    const allCached = Array.from({ length: 12 }, (_, i) => i + 1).every(m => rawCache[m])
+    if (allCached) {
+      const allPoints: DataPoint[] = []
+      for (let m = 1; m <= 12; m++) allPoints.push(...parseMonth(rawCache[m], region))
+      setData(allPoints)
+      setIsSimulated(false)
+      return
+    }
+
     // Cancel any in-flight load
     abortRef.current?.abort()
     abortRef.current = new AbortController()
