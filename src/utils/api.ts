@@ -13,7 +13,7 @@ export async function fetchMonth(month: number): Promise<unknown> {
   const days = new Date(2025, month, 0).getDate()
   const params = new URLSearchParams()
   params.append('metrics', 'energy')
-  params.set('interval', '30m')
+  params.set('interval', '5m')
   params.set('date_start', `2025-${pad(month)}-01T00:00:00`)
   params.set('date_end', `2025-${pad(month)}-${pad(days)}T23:30:00`)
   params.set('primary_grouping', 'network_region')
