@@ -11,9 +11,9 @@ export async function fetchMonth(month: number): Promise<unknown> {
   const days = new Date(2025, month, 0).getDate()
   const params = new URLSearchParams()
   params.append('metrics', 'energy')
-  params.set('interval', '5m')
+  params.set('interval', '1h')
   params.set('date_start', `2025-${pad(month)}-01T00:00:00`)
-  params.set('date_end', `2025-${pad(month)}-${pad(days)}T23:55:00`)
+  params.set('date_end', `2025-${pad(month)}-${pad(days)}T23:00:00`)
   params.set('primary_grouping', 'network_region')
   params.append('secondary_grouping', 'fueltech_group')
 
@@ -30,7 +30,6 @@ export function parseMonth(json: unknown, region: Region): DataPoint[] {
 
   if (!series.length) return []
 
-  // Bucket by local date string + interval slot
   const buckets = new Map<string, { r: number; t: number }>()
 
   for (const s of series) {
@@ -45,10 +44,7 @@ export function parseMonth(json: unknown, region: Region): DataPoint[] {
 
       for (const [ts, val] of result.data ?? []) {
         if (typeof val !== 'number' || val < 0) continue
-
-        // Parse the local time directly from the ISO string (ignore timezone)
-        // Format: "2025-01-01T00:00:00+10:00"
-        const localStr = ts.slice(0, 16) // "2025-01-01T00:00"
+        const localStr = ts.slice(0, 16) // "2025-MM-DDTHH:mm"
         if (!buckets.has(localStr)) buckets.set(localStr, { r: 0, t: 0 })
         const b = buckets.get(localStr)!
         b.t += val
@@ -61,19 +57,20 @@ export function parseMonth(json: unknown, region: Region): DataPoint[] {
 
   for (const [localStr, { r, t }] of buckets) {
     if (t === 0) continue
-    // localStr = "2025-MM-DDTHH:mm"
-    const datePart = localStr.slice(0, 10)  // "2025-MM-DD"
-    const timePart = localStr.slice(11)     // "HH:mm"
+    const datePart = localStr.slice(0, 10)
+    const hh = parseInt(localStr.slice(11, 13))
     const [year, mon, dayN] = datePart.split('-').map(Number)
-    const [hh, mm] = timePart.split(':').map(Number)
 
     const dayOfYear = Math.floor(
       (Date.UTC(year, mon - 1, dayN) - Date.UTC(2025, 0, 1)) / 86_400_000
     )
     if (dayOfYear < 0 || dayOfYear >= 365) continue
 
-    const interval = Math.floor((hh * 60 + mm) / 30)
+    // 1h interval → map each hour to 2 x 30-min slots
+    const interval = hh * 2
     points.push({ day: dayOfYear, interval, value: Math.round((r / t) * 1000) / 10 })
+    // Also fill the :30 slot with same value
+    points.push({ day: dayOfYear, interval: interval + 1, value: Math.round((r / t) * 1000) / 10 })
   }
 
   return points
