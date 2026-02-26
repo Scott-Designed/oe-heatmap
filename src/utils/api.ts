@@ -6,8 +6,6 @@ const RENEWABLE = new Set([
   'bioenergy_biogas', 'bioenergy_biomass',
 ])
 
-const YEAR_START = new Date('2025-01-01T00:00:00').getTime()
-
 export async function fetchMonth(month: number): Promise<unknown> {
   const pad = (n: number) => String(n).padStart(2, '0')
   const days = new Date(2025, month, 0).getDate()
@@ -15,7 +13,7 @@ export async function fetchMonth(month: number): Promise<unknown> {
   params.append('metrics', 'energy')
   params.set('interval', '5m')
   params.set('date_start', `2025-${pad(month)}-01T00:00:00`)
-  params.set('date_end', `2025-${pad(month)}-${pad(days)}T23:30:00`)
+  params.set('date_end', `2025-${pad(month)}-${pad(days)}T23:55:00`)
   params.set('primary_grouping', 'network_region')
   params.append('secondary_grouping', 'fueltech_group')
 
@@ -25,24 +23,21 @@ export async function fetchMonth(month: number): Promise<unknown> {
 }
 
 export function parseMonth(json: unknown, region: Region): DataPoint[] {
-  // Response shape: { data: [{ metric, results: [{ columns: {network_region, fueltech_group}, data: [[ts, val],...] }] }] }
   const raw = json as Record<string, unknown>
   const series = (
-    Array.isArray(raw) ? raw :
-    Array.isArray(raw.data) ? raw.data :
-    (raw.data as Record<string, unknown>)?.data ?? []
+    Array.isArray(raw.data) ? raw.data : []
   ) as Array<{ results?: Array<{ columns?: Record<string, string>; data?: [string, number][] }> }>
 
   if (!series.length) return []
 
-  // Accumulate into buckets keyed by timestamp
+  // Bucket by local date string + interval slot
   const buckets = new Map<string, { r: number; t: number }>()
 
   for (const s of series) {
     for (const result of s.results ?? []) {
       const cols = result.columns ?? {}
       const ft = (cols.fueltech_group ?? '').toLowerCase()
-      const rgn = cols.network_region ?? 'NEM'
+      const rgn = cols.region ?? ''
 
       if (region !== 'NEM' && rgn !== region) continue
 
@@ -50,8 +45,12 @@ export function parseMonth(json: unknown, region: Region): DataPoint[] {
 
       for (const [ts, val] of result.data ?? []) {
         if (typeof val !== 'number' || val < 0) continue
-        if (!buckets.has(ts)) buckets.set(ts, { r: 0, t: 0 })
-        const b = buckets.get(ts)!
+
+        // Parse the local time directly from the ISO string (ignore timezone)
+        // Format: "2025-01-01T00:00:00+10:00"
+        const localStr = ts.slice(0, 16) // "2025-01-01T00:00"
+        if (!buckets.has(localStr)) buckets.set(localStr, { r: 0, t: 0 })
+        const b = buckets.get(localStr)!
         b.t += val
         if (isRenew) b.r += val
       }
@@ -60,14 +59,21 @@ export function parseMonth(json: unknown, region: Region): DataPoint[] {
 
   const points: DataPoint[] = []
 
-  for (const [ts, { r, t }] of buckets) {
+  for (const [localStr, { r, t }] of buckets) {
     if (t === 0) continue
-    const dt = new Date(ts)
-    if (isNaN(dt.getTime())) continue
-    const day = Math.floor((dt.getTime() - YEAR_START) / 86_400_000)
-    if (day < 0 || day >= 365) continue
-    const interval = Math.floor((dt.getHours() * 60 + dt.getMinutes()) / 30)
-    points.push({ day, interval, value: Math.round((r / t) * 1000) / 10 })
+    // localStr = "2025-MM-DDTHH:mm"
+    const datePart = localStr.slice(0, 10)  // "2025-MM-DD"
+    const timePart = localStr.slice(11)     // "HH:mm"
+    const [year, mon, dayN] = datePart.split('-').map(Number)
+    const [hh, mm] = timePart.split(':').map(Number)
+
+    const dayOfYear = Math.floor(
+      (Date.UTC(year, mon - 1, dayN) - Date.UTC(2025, 0, 1)) / 86_400_000
+    )
+    if (dayOfYear < 0 || dayOfYear >= 365) continue
+
+    const interval = Math.floor((hh * 60 + mm) / 30)
+    points.push({ day: dayOfYear, interval, value: Math.round((r / t) * 1000) / 10 })
   }
 
   return points
