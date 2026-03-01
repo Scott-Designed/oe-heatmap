@@ -42,9 +42,11 @@ function metricColor(metric,val,dark=true){
   if(metric==='carbon')return interp(sc,val/800)
   if(metric==='renewables')return interp(sc,val/100)
   if(metric==='battery')return interp(sc,Math.min(1,val/15))
+  if(metric==='solar'||metric==='coal')return interp(sc,Math.min(1,val/100))
   return interp(sc,Math.min(1,val/50))
 }
 function metricNorm(metric,val){
+  if(metric==='solar'||metric==='coal')return Math.min(1,val/100)
   if(metric==='carbon')return Math.min(1,val/800)
   if(metric==='renewables')return Math.min(1,val/100)
   if(metric==='battery')return Math.min(1,val/15)
@@ -838,7 +840,7 @@ function Heatmap({rawGrids,metric,year,theme:t,dark,dotMode,goo,pixelMode,waterm
     let lc=-1,lr=-1
     for(let c=0;c<cols;c++)for(let r=0;r<rows;r++){
       const val=grid[c*rows+r];if(val<0)continue
-      const norm=metric==='carbon'?val/800:(metric==='renewables'?val/100:Math.min(1,val/50))
+      const norm=metric==='carbon'?val/800:metric==='renewables'?val/100:metric==='solar'||metric==='coal'?Math.min(1,val/100):Math.min(1,val/50)
       const maxR=Math.min(cellW,cellH)*0.72,minR=Math.min(cellW,cellH)*0.05
       const rr=minR+(maxR-minR)*norm
       ctx.globalAlpha=(mask&&!mask[c*rows+r])?0.05:1
@@ -1215,7 +1217,7 @@ function Heatmap({rawGrids,metric,year,theme:t,dark,dotMode,goo,pixelMode,waterm
       tip.style.left=(tipX+170>w?tipX-180:tipX)+'px';tip.style.top=Math.max(0,tipY)+'px';tip.style.display='block';return
     }
     const label=tooltipLabel(metric,val)
-    const barPct=metric==='carbon'?Math.round(Math.max(15,(1-val/100)*750))/800*100:metric==='renewables'?val:metric==='battery'?Math.min(100,val/15*100):Math.min(100,val/50*100)
+    const barPct=metric==='carbon'?Math.round(Math.max(15,(1-val/100)*750))/800*100:metric==='renewables'?val:metric==='battery'?Math.min(100,val/15*100):(metric==='solar'||metric==='coal')?Math.min(100,val):Math.min(100,val/50*100)
     const barColor=metricColor(metric,val,dark)
     tip.innerHTML=`
       <div style="font-family:'DM Mono',monospace;font-size:11px;line-height:1.5">
