@@ -753,7 +753,111 @@ const NOW=(()=>{
 })()
 
 // ── Heatmap ───────────────────────────────────────────────────────────────────
-function Heatmap({rawGrids,metric,year,theme:t,dark,dotMode,goo,pixelMode,watermarkMode,numBands,onNumBandsChange,spritesMode,granularity,yearType}){
+// ── MetricLoadOverlay ─────────────────────────────────────────────────────────
+const METRIC_COLOR={
+  renewables:'#22c55e',solar:'#fde047',wind:'#818cf8',
+  gas:'#fb923c',coal:'#94a3b8',carbon:'#f87171',battery:'#e879f9',
+}
+function MetricLoadOverlay({metric,active,plotW,plotH,dark}){
+  const canvasRef=useRef(null)
+  // visible stays true until fade finishes, even after active goes false
+  const[visible,setVisible]=useState(false)
+  const activeRef=useRef(false)
+
+  // Track active changes
+  useEffect(()=>{
+    if(active&&!activeRef.current){
+      activeRef.current=true
+      setVisible(true)
+    } else if(!active&&activeRef.current){
+      activeRef.current=false
+      // fade handled inside RAF; visible cleared when fade done
+    }
+  },[active])
+
+  useEffect(()=>{
+    if(!visible||!plotW||!plotH)return
+    const canvas=canvasRef.current;if(!canvas)return
+    const ctx=canvas.getContext('2d')
+
+    const text=(metric==='renewables'?'RENEW':metric.toUpperCase()).slice(0,7)
+    const chars=text.split('')
+    const CW=5,CG=1,CH=7
+    const scale=Math.max(4,Math.min(20,Math.floor(plotW*0.72/(chars.length*(CW+CG)))))
+    const tw=(chars.length*(CW+CG)-CG)*scale
+    const oy=Math.floor((plotH-CH*scale)/2)
+    const ox=Math.floor((plotW-tw)/2)
+
+    const glyphPixels=[]
+    chars.forEach((ch,ci)=>{
+      const glyph=FONT5[ch]||FONT5[' ']
+      glyph.forEach((row,ry)=>{
+        for(let bx=0;bx<5;bx++){
+          if(!(row>>(4-bx)&1))continue
+          glyphPixels.push({x:ox+ci*(CW+CG)*scale+bx*scale,y:oy+ry*scale})
+        }
+      })
+    })
+
+    const now=performance.now()
+    const SETTLE_MS=2400
+    const pixels=glyphPixels.map(p=>({
+      ...p,settleAt:now+Math.random()*SETTLE_MS,
+      freq:5+Math.random()*12,phase:Math.random()*Math.PI*2,
+    }))
+
+    const color=METRIC_COLOR[metric]||'#22c55e'
+    const r16=parseInt(color.slice(1,3),16)
+    const g16=parseInt(color.slice(3,5),16)
+    const b16=parseInt(color.slice(5,7),16)
+    const bgR=dark?17:238,bgG=dark?19:236,bgB=dark?21:231
+
+    let alive=true
+    let fadeAlpha=1
+    let raf=null
+
+    const draw=(t)=>{
+      if(!alive)return
+      ctx.clearRect(0,0,plotW,plotH)
+      ctx.fillStyle=`rgba(${bgR},${bgG},${bgB},0.82)`
+      ctx.fillRect(0,0,plotW,plotH)
+      pixels.forEach(p=>{
+        const settled=t>=p.settleAt
+        let a
+        if(settled){
+          a=fadeAlpha
+        }else{
+          const prog=Math.max(0,(t-now)/(p.settleAt-now))
+          const flicker=0.5+0.5*Math.sin(t*0.001*p.freq*Math.PI*2+p.phase)
+          a=(flicker*(1-prog*0.5)+prog*0.5)*fadeAlpha
+        }
+        ctx.fillStyle=`rgba(${r16},${g16},${b16},${a})`
+        ctx.fillRect(p.x,p.y,scale,scale)
+      })
+      // Fade out once active goes false
+      if(!activeRef.current){
+        fadeAlpha=Math.max(0,fadeAlpha-0.05)
+        if(fadeAlpha<=0){
+          alive=false
+          ctx.clearRect(0,0,plotW,plotH)
+          setVisible(false)
+          return
+        }
+      }
+      raf=requestAnimationFrame(draw)
+    }
+    raf=requestAnimationFrame(draw)
+    return()=>{alive=false;if(raf)cancelAnimationFrame(raf)}
+  },[visible,metric,plotW,plotH,dark])
+
+  if(!visible)return null
+  return(
+    <canvas ref={canvasRef} width={plotW} height={plotH}
+      style={{position:'absolute',left:PAD.left,top:PAD.top,pointerEvents:'none',zIndex:20}}/>
+  )
+}
+
+function Heatmap({rawGrids,metric,year,theme:t,dark,dotMode,goo,pixelMode,watermarkMode,numBands,onNumBandsChange,spritesMode,granularity,yearType,dataMode}){
   const containerRef=useRef(null)
   const canvasRef=useRef(null)       // full canvas: bg + axes + labels + legend + rect/dot cells
   const gooCanvasRef=useRef(null)    // small canvas (plot-area only) inside filtered div, for goo
@@ -1287,6 +1391,11 @@ function Heatmap({rawGrids,metric,year,theme:t,dark,dotMode,goo,pixelMode,waterm
               border:'1.5px solid #4ade80',borderRadius:1,pointerEvents:'none',
               animation:'livepulse 1.8s ease-in-out infinite',zIndex:5}}/>
           )}
+          {/* Layer 6: metric load overlay */}
+          {(()=>{
+            const pW=size.w-PAD.left-PAD.right,pH=size.h-PAD.top-PAD.bottom
+            return<MetricLoadOverlay metric={metric} active={dataMode==='loading'} plotW={pW} plotH={pH} dark={dark}/>
+          })()}
           <div ref={tooltipRef} style={{display:'none',position:'absolute',pointerEvents:'none',
             background:t.tooltip.bg,border:`1px solid ${t.tooltip.border}`,borderRadius:6,
             padding:'8px 12px',fontSize:11,fontFamily:"'DM Mono',monospace",
@@ -1296,6 +1405,7 @@ function Heatmap({rawGrids,metric,year,theme:t,dark,dotMode,goo,pixelMode,waterm
     </div>
   )
 }
+
 
 
 // ── FacilityGrid ──────────────────────────────────────────────────────────────
@@ -2265,7 +2375,7 @@ function YearRiver({years,selectedYear,onSelect,metric,region,realCacheRef,dark,
     </div>
   )
 }
-const YEARS=Array.from({length:NOW.year-2009},(_,i)=>2010+i)
+const YEARS=Array.from({length:NOW.year-2015},(_,i)=>2016+i)
 
 export default function App(){
   const[region,setRegion]=useState('NEM')
@@ -2288,6 +2398,9 @@ export default function App(){
   const realCache=useRef({})
   const[cacheVersion,setCacheVersion]=useState(0)
   const fetchAbort=useRef(null)
+  const prefetchAbort=useRef(null)
+  const prefetchQueue=useRef([])
+  const prefetching=useRef(false)
 
   const getCYGrids=(r,y)=>{
     const key=`${r}-${y}`
@@ -2427,17 +2540,46 @@ export default function App(){
     }
   }
 
+  // Background prefetch — fetches all years for given regions sequentially
+  const prefetchAllYears=async(startRegion)=>{
+    // Cancel any running prefetch
+    if(prefetchAbort.current)prefetchAbort.current.abort()
+    prefetchAbort.current=new AbortController()
+    const signal=prefetchAbort.current.signal
+    prefetching.current=true
+    // All region codes, starting with the current one
+    const allRegions=REGIONS.map(r=>r.code)
+    const regionOrder=[startRegion,...allRegions.filter(r=>r!==startRegion)]
+    const years=[...YEARS].reverse()
+    for(const r of regionOrder){
+      for(const y of years){
+        if(signal.aborted)break
+        const key=`real-${r}-${y}`
+        if(realCache.current[key])continue
+        try{
+          await fetchRealCYGrids(r,y,signal)
+          setCacheVersion(v=>v+1)
+        }catch(e){
+          if(e.name==='AbortError')break
+          // Silently skip failed years during prefetch
+        }
+      }
+      if(signal.aborted)break
+    }
+    prefetching.current=false
+  }
+
   useEffect(()=>{
     const link=document.createElement('link')
     link.rel='stylesheet'
     link.href='https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500&family=DM+Mono:wght@400;500&family=Archivo+Black&display=swap'
     document.head.appendChild(link)
-    // Show sim data immediately, then fetch real
+    // Show sim data immediately, fetch current year, then prefetch all others
     setRawGrids(getGrids('NEM',NOW.year,'CY'))
-    triggerRealFetch('NEM',NOW.year,'CY')
+    triggerRealFetch('NEM',NOW.year,'CY').then(()=>prefetchAllYears('NEM'))
   },[])
 
-  const handleRegion=(r)=>{setRegion(r);setRawGrids(getGrids(r,year));triggerRealFetch(r,year,yearType)}
+  const handleRegion=(r)=>{setRegion(r);setRawGrids(getGrids(r,year));triggerRealFetch(r,year,yearType).then(()=>prefetchAllYears(r))}
   const handleYear=(y)=>{setYear(y);setRawGrids(getGrids(region,y));triggerRealFetch(region,y,yearType)}
   const handleYearType=(yt)=>{setYearType(yt);setRawGrids(getGrids(region,year,yt));triggerRealFetch(region,year,yt)}
   const handleYearKey=k=>{
@@ -2465,7 +2607,7 @@ export default function App(){
   const yearKey=`${yearType}-${year}`
   const yearOptions=[
     ...YEARS.slice().reverse().map(y=>({value:`CY-${y}`,label:String(y)})),
-    ...YEARS.filter(y=>y>2010).slice().reverse().map(y=>({value:`FY-${y}`,label:`FY${y}`})),
+    ...YEARS.filter(y=>y>2016).slice().reverse().map(y=>({value:`FY-${y}`,label:`FY${y}`})),
   ]
 
   // ── Responsive ──────────────────────────────────────────────────────────────
@@ -2734,7 +2876,7 @@ export default function App(){
           ?<FacilityGrid region={region} theme={t} dark={dark} layout={facilityLayout}/>
           :(rawGrids
             ?<Heatmap rawGrids={rawGrids} metric={metric} year={year} theme={t} dark={dark} dotMode={dotMode} goo={goo} watermarkMode={false} spritesMode={spritesMode} numBands={numBands} onNumBandsChange={setNumBands}
-                granularity={granularity} yearType={yearType}/>
+                granularity={granularity} yearType={yearType} dataMode={dataMode}/>
             :<div style={{height:'100%',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:"'DM Mono',monospace",fontSize:13,color:t.muted}}>Loading…</div>
           )
         }
