@@ -1237,6 +1237,8 @@ function Heatmap({rawGrids,metric,year,theme:t,dark,dotMode,goo,pixelMode,waterm
     applyLegendDrag(e)
   },[applyLegendDrag])
 
+
+
   return(
     <div ref={containerRef} style={{width:'100%',height:'100%',position:'relative'}}>
       <style>{`@keyframes livepulse{0%,100%{opacity:1;box-shadow:0 0 0 0px rgba(74,222,128,0.8)}50%{opacity:.6;box-shadow:0 0 0 3px rgba(74,222,128,0)}}`}</style>
@@ -1494,7 +1496,7 @@ function FacilityGrid({region,theme:t,dark,layout='horizontal'}){
   const plotH=size.h-PAD.top-PAD.bottom
 
   const gridData=useMemo(()=>{
-    if(layout==='bubbles')return{facs:[],map:new Int16Array(0)}
+    if(layout==='bubbles'||layout==='wordcloud')return{facs:[],map:new Int16Array(0)}
     const r=layout==='treemap'
       ?buildTreemapMap(FACILITIES,region,plotW,plotH)
       :buildFacilityMap(FACILITIES,region)
@@ -1538,7 +1540,7 @@ function FacilityGrid({region,theme:t,dark,layout='horizontal'}){
 
   // Start/stop RAF loop for bubbles
   useEffect(()=>{
-    if(layout!=='bubbles'){
+    if(layout!=='bubbles'&&layout!=='wordcloud'){
       if(rafRef.current)cancelAnimationFrame(rafRef.current)
       rafRef.current=null
       physicsRef.current=null
@@ -1696,7 +1698,7 @@ function FacilityGrid({region,theme:t,dark,layout='horizontal'}){
 
   // Grid draw (non-bubble layouts) — unchanged
   useEffect(()=>{
-    if(layout==='bubbles')return
+    if(layout==='bubbles'||layout==='wordcloud')return
     const canvas=canvasRef.current;if(!canvas||!size.w||!size.h)return
     canvas.width=size.w;canvas.height=size.h
     const ctx=canvas.getContext('2d')
@@ -1786,7 +1788,7 @@ function FacilityGrid({region,theme:t,dark,layout='horizontal'}){
     const mx=e.clientX-rect.left,my=e.clientY-rect.top
     const tip=tooltipRef.current
 
-    if(layout==='bubbles'){
+    if(layout==='bubbles'||layout==='wordcloud'){
       cursorRef.current={x:mx,y:my,inside:true}
       const phys=physicsRef.current;if(!phys)return
       const{balls,facs:fs,totalMW}=phys
@@ -1852,10 +1854,116 @@ function FacilityGrid({region,theme:t,dark,layout='horizontal'}){
     if(tooltipRef.current)tooltipRef.current.style.display='none'
   },[])
 
+
+  // ── Wordcloud render ─────────────────────────────────────────────────────────
+  useEffect(()=>{
+    if(layout!=='wordcloud')return
+    const canvas=canvasRef.current;if(!canvas||!size.w||!size.h)return
+    const{w,h}=size
+    canvas.width=w;canvas.height=h
+    const ctx=canvas.getContext('2d')
+    ctx.fillStyle=t.canvasBg;ctx.fillRect(0,0,w,h)
+
+    const facs=FACILITIES.filter(f=>region==='NEM'||f.region===region)
+      .slice().sort((a,b)=>b.mw-a.mw)
+    if(!facs.length)return
+
+    const maxMW=facs[0].mw
+    const minMW=facs[facs.length-1].mw
+
+    // Occupancy grid for collision detection
+    const OCC_SCALE=4
+    const occW=Math.ceil(w/OCC_SCALE),occH=Math.ceil(h/OCC_SCALE)
+    const occ=new Uint8Array(occW*occH)
+    const markOcc=(x0,y0,x1,y1)=>{
+      const gx0=Math.max(0,Math.floor(x0/OCC_SCALE)-1)
+      const gy0=Math.max(0,Math.floor(y0/OCC_SCALE)-1)
+      const gx1=Math.min(occW-1,Math.ceil(x1/OCC_SCALE)+1)
+      const gy1=Math.min(occH-1,Math.ceil(y1/OCC_SCALE)+1)
+      for(let gy=gy0;gy<=gy1;gy++)for(let gx=gx0;gx<=gx1;gx++)occ[gy*occW+gx]=1
+    }
+    const testOcc=(x0,y0,x1,y1)=>{
+      const gx0=Math.max(0,Math.floor(x0/OCC_SCALE))
+      const gy0=Math.max(0,Math.floor(y0/OCC_SCALE))
+      const gx1=Math.min(occW-1,Math.ceil(x1/OCC_SCALE))
+      const gy1=Math.min(occH-1,Math.ceil(y1/OCC_SCALE))
+      for(let gy=gy0;gy<=gy1;gy++)for(let gx=gx0;gx<=gx1;gx++)if(occ[gy*occW+gx])return true
+      return false
+    }
+
+    const PAD_X=40,PAD_Y=24
+    const cx=w/2,cy=h/2
+    const placed=[]
+
+    facs.forEach(f=>{
+      const t01=(f.mw-minMW)/(maxMW-minMW+1)
+      // Scale 1..4 based on MW
+      const scale=Math.max(1,Math.min(4,Math.round(1+t01*3)))
+      const charW=5,gap=1,charH=7
+      const name=f.name.toUpperCase()
+      const chars=name.length
+      const tw=(chars*(charW+gap)-gap)*scale
+      const th=charH*scale
+
+      // Spiral search for a free spot
+      let placed_=false
+      const STEP=Math.PI*0.15
+      for(let r=0;r<Math.max(w,h)*0.7;r+=scale*1.5){
+        for(let a=0;a<Math.PI*2;a+=STEP/(r/10+1)){
+          const px=cx+r*Math.cos(a)-tw/2
+          const py=cy+r*Math.sin(a)-th/2
+          if(px<PAD_X||py<PAD_Y||px+tw>w-PAD_X||py+th>h-PAD_Y)continue
+          if(testOcc(px-2,py-2,px+tw+2,py+th+2))continue
+          // Place it
+          markOcc(px-3,py-3,px+tw+3,py+th+3)
+          placed.push({f,px,py,scale,tw,th})
+          placed_=true;break
+        }
+        if(placed_)break
+      }
+    })
+
+    // Draw placed words
+    placed.forEach(({f,px,py,scale})=>{
+      const color=facilityColor(f.fueltech)
+      const name=f.name.toUpperCase()
+      const sx=scale,sy=scale
+      const charW=5,gap=1
+      name.split('').forEach((ch,ci)=>{
+        const glyph=FONT5[ch]||FONT5[' ']
+        glyph.forEach((row,ry)=>{
+          for(let bx=0;bx<5;bx++){
+            if(!(row>>(4-bx)&1))continue
+            ctx.fillStyle=color
+            ctx.fillRect(
+              Math.round(px+ci*(charW+gap)*sx+bx*sx),
+              Math.round(py+ry*sy),
+              sx,sy
+            )
+          }
+        })
+      })
+    })
+
+    // Draw fueltech legend bottom left
+    const seen=new Set();let lx=PAD.left,ly=h-18
+    ctx.font="10px 'DM Mono',monospace";ctx.textBaseline='middle'
+    facs.forEach(f=>{
+      if(seen.has(f.fueltech))return;seen.add(f.fueltech)
+      const color=facilityColor(f.fueltech)
+      ctx.fillStyle=color;ctx.beginPath();ctx.arc(lx+4,ly,4,0,Math.PI*2);ctx.fill()
+      ctx.strokeStyle='rgba(0,0,0,0.3)';ctx.lineWidth=0.5;ctx.stroke()
+      ctx.fillStyle=t.tickLabel;ctx.textAlign='left'
+      const label=FUELTECH_LABEL[f.fueltech]||f.fueltech
+      ctx.fillText(label,lx+12,ly);lx+=ctx.measureText(label).width+22
+      if(lx>w-120)return
+    })
+  },[layout,size,region,t,dark])
+
   return(
     <div ref={containerRef} style={{width:'100%',height:'100%',position:'relative'}}>
       <canvas ref={canvasRef}
-        style={{display:'block',position:'absolute',inset:0,cursor:layout==='bubbles'?'none':'crosshair'}}
+        style={{display:'block',position:'absolute',inset:0,cursor:layout==='bubbles'?'none':layout==='wordcloud'?'default':'crosshair'}}
         onMouseMove={handleMouseMove} onMouseLeave={handleMouseLeave}
       />
       {/* Hover ring */}
@@ -2390,6 +2498,16 @@ export default function App(){
         <circle cx="5" cy="5.5" r="4" fill="currentColor"/>
         <circle cx="10.5" cy="9" r="2.5" fill="currentColor"/>
         <circle cx="10" cy="3.5" r="1.5" fill="currentColor"/>
+      </svg>
+    )},
+    {v:'wordcloud', icon:(
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+        <rect x="1" y="3" width="5" height="2" rx="0.3" fill="currentColor"/>
+        <rect x="7" y="3" width="6" height="2" rx="0.3" fill="currentColor"/>
+        <rect x="1" y="6.5" width="8" height="1.5" rx="0.3" fill="currentColor" opacity="0.7"/>
+        <rect x="10" y="6.5" width="3" height="1.5" rx="0.3" fill="currentColor" opacity="0.7"/>
+        <rect x="1" y="9.5" width="3" height="1.5" rx="0.3" fill="currentColor" opacity="0.5"/>
+        <rect x="5" y="9.5" width="6" height="1.5" rx="0.3" fill="currentColor" opacity="0.5"/>
       </svg>
     )},
   ]
