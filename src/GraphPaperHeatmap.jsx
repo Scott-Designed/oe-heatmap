@@ -2199,7 +2199,7 @@ function drawPixelText(img,text,imgW,imgH,sx,sy){
   })
 }
 
-function YearThumb({year,selected,onClick,metric,region,realCacheRef,dark,thumbW,thumbH,cacheVersion,yearType}){
+function YearThumb({year,selected,onClick,onHover,onHoverEnd,metric,region,realCacheRef,dark,thumbW,thumbH,cacheVersion,yearType}){
   const canvasRef=useRef(null)
   const palette=PIXEL_PALETTES_LIGHT[metric]||PIXEL_PALETTES_LIGHT.renewables
   useEffect(()=>{
@@ -2245,36 +2245,29 @@ function YearThumb({year,selected,onClick,metric,region,realCacheRef,dark,thumbW
   const thumbLabel=yearType==='FY'?`FY${String(year).slice(2)}`:String(year)
   const trend=NEM_TREND[year]
   return(
-    <div onClick={onClick} title={thumbLabel}
-      style={{cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',gap:2,flexShrink:0}}>
-      <div style={{position:'relative',
+    <div onClick={onClick} title={thumbLabel} onMouseEnter={onHover?()=>onHover(year):undefined} onMouseLeave={onHoverEnd||undefined}
+      style={{cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',gap:0,flexShrink:0}}>
+      <span style={{
+        fontFamily:"'DM Mono',monospace",fontSize:9,letterSpacing:'0.02em',fontWeight:600,lineHeight:1,
+        color:selected&&trend!=null?'#000000':'transparent',
+        marginBottom:2,transition:'color 0.12s',
+      }}>{trend!=null?`${trend}%`:' '}</span>
+      <div style={{
         outline:selected?'2px solid #000000':'1px solid #000000',
         outlineOffset:0,
         boxShadow:selected?'0 2px 4px rgba(0,0,0,0.2)':'none',
         transition:'box-shadow 0.12s',
       }}>
         <canvas ref={canvasRef} width={thumbW} height={thumbH} style={{display:'block'}}/>
-        {selected&&trend!=null&&(
-          <div style={{
-            position:'absolute',top:2,left:0,right:0,
-            display:'flex',justifyContent:'center',
-            pointerEvents:'none',
-          }}>
-            <span style={{
-              fontFamily:"'DM Mono',monospace",fontSize:9,letterSpacing:'0.02em',
-              fontWeight:600,color:'rgba(0,0,0,0.75)',lineHeight:1,
-            }}>{trend}%</span>
-          </div>
-        )}
       </div>
-      <span style={{fontFamily:"'DM Mono',monospace",fontSize:9,letterSpacing:'0.02em',
+      <span style={{fontFamily:"'DM Mono',monospace",fontSize:9,letterSpacing:'0.02em',marginTop:2,
         color:selected?'#000000':'rgba(0,0,0,0.35)',
         fontWeight:selected?600:400,transition:'color 0.12s'}}>{thumbLabel}</span>
     </div>
   )
 }
 
-function YearRiver({years,selectedYear,onSelect,metric,region,realCacheRef,dark,theme:t,cacheVersion,yearType}){
+function YearRiver({years,selectedYear,onSelect,onHoverYear,onHoverEnd,metric,region,realCacheRef,dark,theme:t,cacheVersion,yearType}){
   const THUMB_W=68,THUMB_H=32
   return(
     <div style={{
@@ -2288,6 +2281,7 @@ function YearRiver({years,selectedYear,onSelect,metric,region,realCacheRef,dark,
         <YearThumb key={y} year={y} selected={y===selectedYear}
           onClick={()=>onSelect(y)} metric={metric} region={region}
           realCacheRef={realCacheRef} dark={dark} cacheVersion={cacheVersion} yearType={yearType}
+          onHover={onHoverYear} onHoverEnd={onHoverEnd}
           thumbW={THUMB_W} thumbH={THUMB_H}/>
       ))}
     </div>
@@ -2308,6 +2302,7 @@ export default function App(){
   const[numBands,setNumBands]=useState(null) // null = smooth
   const[goo,setGoo]=useState(0)
   const[year,setYear]=useState(NOW.year)
+  const[hoveredYear,setHoveredYear]=useState(null)
   const[yearType,setYearType]=useState('CY')
   const[granularity,setGranularity]=useState('30min')
   const[rawGrids,setRawGrids]=useState(null)
@@ -2497,6 +2492,8 @@ export default function App(){
     triggerRealFetch('NEM',NOW.year,'CY').then(()=>prefetchAllYears('NEM'))
   },[])
 
+  const handleYearHover=(y)=>{setHoveredYear(y);setRawGrids(getGrids(region,y))}
+  const handleYearHoverEnd=()=>{setHoveredYear(null);setRawGrids(getGrids(region,year))}
   const handleRegion=(r)=>{setRegion(r);setRawGrids(getGrids(r,year));triggerRealFetch(r,year,yearType).then(()=>prefetchAllYears(r))}
   const handleYear=(y)=>{setYear(y);setRawGrids(getGrids(region,y));triggerRealFetch(region,y,yearType)}
   const handleYearType=(yt)=>{setYearType(yt);setRawGrids(getGrids(region,year,yt));triggerRealFetch(region,year,yt)}
@@ -2812,8 +2809,9 @@ export default function App(){
 
       {/* Year River */}
       {!isMobile&&viewMode==='energy'&&(
-        <YearRiver years={YEARS} selectedYear={year} onSelect={y=>handleYear(y)}
-          metric={metric} region={region} realCacheRef={realCache} dark={dark} theme={t} cacheVersion={cacheVersion} yearType={yearType}/>
+        <YearRiver years={YEARS} selectedYear={hoveredYear||year} onSelect={y=>handleYear(y)}
+          metric={metric} region={region} realCacheRef={realCache} dark={dark} theme={t} cacheVersion={cacheVersion} yearType={yearType}
+          onHoverYear={handleYearHover} onHoverEnd={handleYearHoverEnd}/>
       )}
 
       {/* Footer */}
