@@ -2089,13 +2089,13 @@ export default function App(){
   const getGrids=(r,y,yt=yearType)=>yt==='FY'?getFYGrids(r,y):getCYGrids(r,y)
 
   // ── Real data fetch ──────────────────────────────────────────────────────────
-  const RENEW_FT=new Set(['solar_rooftop','solar_utility','wind','hydro','pumps','battery_discharging','bioenergy_biogas','bioenergy_biomass'])
-  const SOLAR_FT=new Set(['solar_rooftop','solar_utility'])
+  const RENEW_FT=new Set(['solar','wind','hydro','pumps','battery_discharging','bioenergy','battery'])
+  const SOLAR_FT=new Set(['solar'])
   const WIND_FT=new Set(['wind'])
-  const GAS_FT=new Set(['gas_ocgt','gas_ccgt','gas_steam','gas_recip','gas_wcmg'])
-  const COAL_FT=new Set(['black_coal','brown_coal'])
-  const BATT_FT=new Set(['battery_discharging'])
-  const FOSSIL_FT=new Set(['gas_ocgt','gas_ccgt','gas_steam','gas_recip','gas_wcmg','black_coal','brown_coal','distillate'])
+  const GAS_FT=new Set(['gas'])
+  const COAL_FT=new Set(['coal'])
+  const BATT_FT=new Set(['battery_discharging','battery'])
+  const FOSSIL_FT=new Set(['gas','coal','distillate'])
 
   const fetchRealCYGrids=async(r,y,signal)=>{
     const key=`real-${r}-${y}`
