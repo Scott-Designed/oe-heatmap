@@ -31,10 +31,10 @@ const SCALES_LIGHT={
 const LEGEND={
   renewables:{lo:'0%',hi:'100%'},
   carbon:    {lo:'0 g',hi:'800 gCO\u2082/kWh'},
-  solar:     {lo:'0%',hi:'>50%'},
+  solar:     {lo:'0%',hi:'100%'},
   wind:      {lo:'0%',hi:'>50%'},
   gas:       {lo:'0%',hi:'>50%'},
-  coal:      {lo:'0%',hi:'>50%'},
+  coal:      {lo:'0%',hi:'100%'},
   battery:   {lo:'0%',hi:'>15%'},
 }
 function metricColor(metric,val,dark=true){
@@ -753,110 +753,6 @@ const NOW=(()=>{
 })()
 
 // ── Heatmap ───────────────────────────────────────────────────────────────────
-// ── MetricLoadOverlay ─────────────────────────────────────────────────────────
-const METRIC_COLOR={
-  renewables:'#22c55e',solar:'#fde047',wind:'#818cf8',
-  gas:'#fb923c',coal:'#94a3b8',carbon:'#f87171',battery:'#e879f9',
-}
-function MetricLoadOverlay({metric,active,plotW,plotH,dark}){
-  const canvasRef=useRef(null)
-  // visible stays true until fade finishes, even after active goes false
-  const[visible,setVisible]=useState(false)
-  const activeRef=useRef(false)
-
-  // Track active changes
-  useEffect(()=>{
-    if(active&&!activeRef.current){
-      activeRef.current=true
-      setVisible(true)
-    } else if(!active&&activeRef.current){
-      activeRef.current=false
-      // fade handled inside RAF; visible cleared when fade done
-    }
-  },[active])
-
-  useEffect(()=>{
-    if(!visible||!plotW||!plotH)return
-    const canvas=canvasRef.current;if(!canvas)return
-    const ctx=canvas.getContext('2d')
-
-    const text=(metric==='renewables'?'RENEW':metric.toUpperCase()).slice(0,7)
-    const chars=text.split('')
-    const CW=5,CG=1,CH=7
-    const scale=Math.max(4,Math.min(20,Math.floor(plotW*0.72/(chars.length*(CW+CG)))))
-    const tw=(chars.length*(CW+CG)-CG)*scale
-    const oy=Math.floor((plotH-CH*scale)/2)
-    const ox=Math.floor((plotW-tw)/2)
-
-    const glyphPixels=[]
-    chars.forEach((ch,ci)=>{
-      const glyph=FONT5[ch]||FONT5[' ']
-      glyph.forEach((row,ry)=>{
-        for(let bx=0;bx<5;bx++){
-          if(!(row>>(4-bx)&1))continue
-          glyphPixels.push({x:ox+ci*(CW+CG)*scale+bx*scale,y:oy+ry*scale})
-        }
-      })
-    })
-
-    const now=performance.now()
-    const SETTLE_MS=2400
-    const pixels=glyphPixels.map(p=>({
-      ...p,settleAt:now+Math.random()*SETTLE_MS,
-      freq:5+Math.random()*12,phase:Math.random()*Math.PI*2,
-    }))
-
-    const color=METRIC_COLOR[metric]||'#22c55e'
-    const r16=parseInt(color.slice(1,3),16)
-    const g16=parseInt(color.slice(3,5),16)
-    const b16=parseInt(color.slice(5,7),16)
-    const bgR=dark?17:238,bgG=dark?19:236,bgB=dark?21:231
-
-    let alive=true
-    let fadeAlpha=1
-    let raf=null
-
-    const draw=(t)=>{
-      if(!alive)return
-      ctx.clearRect(0,0,plotW,plotH)
-      ctx.fillStyle=`rgba(${bgR},${bgG},${bgB},0.82)`
-      ctx.fillRect(0,0,plotW,plotH)
-      pixels.forEach(p=>{
-        const settled=t>=p.settleAt
-        let a
-        if(settled){
-          a=fadeAlpha
-        }else{
-          const prog=Math.max(0,(t-now)/(p.settleAt-now))
-          const flicker=0.5+0.5*Math.sin(t*0.001*p.freq*Math.PI*2+p.phase)
-          a=(flicker*(1-prog*0.5)+prog*0.5)*fadeAlpha
-        }
-        ctx.fillStyle=`rgba(${r16},${g16},${b16},${a})`
-        ctx.fillRect(p.x,p.y,scale,scale)
-      })
-      // Fade out once active goes false
-      if(!activeRef.current){
-        fadeAlpha=Math.max(0,fadeAlpha-0.05)
-        if(fadeAlpha<=0){
-          alive=false
-          ctx.clearRect(0,0,plotW,plotH)
-          setVisible(false)
-          return
-        }
-      }
-      raf=requestAnimationFrame(draw)
-    }
-    raf=requestAnimationFrame(draw)
-    return()=>{alive=false;if(raf)cancelAnimationFrame(raf)}
-  },[visible,metric,plotW,plotH,dark])
-
-  if(!visible)return null
-  return(
-    <canvas ref={canvasRef} width={plotW} height={plotH}
-      style={{position:'absolute',left:PAD.left,top:PAD.top,pointerEvents:'none',zIndex:20}}/>
-  )
-}
-
 function Heatmap({rawGrids,metric,year,theme:t,dark,dotMode,goo,pixelMode,watermarkMode,numBands,onNumBandsChange,spritesMode,granularity,yearType,dataMode}){
   const containerRef=useRef(null)
   const canvasRef=useRef(null)       // full canvas: bg + axes + labels + legend + rect/dot cells
@@ -999,7 +895,7 @@ function Heatmap({rawGrids,metric,year,theme:t,dark,dotMode,goo,pixelMode,waterm
           const bands=numBands&&numBands<16?numBands:16
           const bandW=1/bands
           const cellBand=Math.floor(n*bands)/bands   // band start
-          const hoverBand=Math.floor(hoverT*bands)/bands
+          const hoverBand=Math.floor((1-hoverT)*bands)/bands
           legendMatch=Math.abs(cellBand-hoverBand)<bandW*0.5+0.001
         }
         const baseAlpha=inMask?1:0.05
@@ -1067,7 +963,7 @@ function Heatmap({rawGrids,metric,year,theme:t,dark,dotMode,goo,pixelMode,waterm
     // ── Vertical legend on right side ──────────────────────────────────────────
     const LH=Math.min(220,plotH*0.65)   // legend height
     const LW=12                          // legend bar width
-    const lx=w-PAD.right+14             // x position (right side)
+    const lx=w-PAD.right+(PAD.right-LW)/2  // centred in right margin
     const ly=PAD.top+(plotH-LH)/2       // vertically centered
     const bands=numBands&&numBands<16?numBands:64
     for(let i=0;i<bands;i++){
@@ -1081,19 +977,22 @@ function Heatmap({rawGrids,metric,year,theme:t,dark,dotMode,goo,pixelMode,waterm
     ctx.strokeRect(lx,ly,LW,LH)
     // Labels top and bottom
     ctx.font="9px 'DM Mono',monospace";ctx.fillStyle=t.tickLabel
-    ctx.textAlign='left';ctx.textBaseline='bottom';ctx.fillText(LEGEND[metric].hi,lx+LW+5,ly+2)
-    ctx.textBaseline='top';ctx.fillText(LEGEND[metric].lo,lx+LW+5,ly+LH-2)
-    // Band count label to left of bar
-    const bLabel=(!numBands||numBands>=16)?'smooth':`${numBands}`
-    ctx.save();ctx.translate(lx-4,ly+LH/2);ctx.rotate(-Math.PI/2)
-    ctx.textAlign='center';ctx.textBaseline='bottom';ctx.fillStyle=t.muted
-    ctx.fillText(bLabel,0,0);ctx.restore()
+    ctx.textAlign='center'
+    ctx.textBaseline='bottom';ctx.fillText(LEGEND[metric].hi,lx+LW/2,ly-2)
+    ctx.textBaseline='top';ctx.fillText(LEGEND[metric].lo,lx+LW/2,ly+LH+2)
+    // Band count label to left of bar — only show when banded (not smooth)
+    if(numBands&&numBands<16){
+      const bLabel=`${numBands}`
+      ctx.save();ctx.translate(lx-4,ly+LH/2);ctx.rotate(-Math.PI/2)
+      ctx.textAlign='center';ctx.textBaseline='bottom';ctx.fillStyle=t.muted
+      ctx.fillText(bLabel,0,0);ctx.restore()
+    }
     // Hover highlight on legend (vertical)
     const hoverT=legendHoverTRef.current
     if(hoverT!==null){
       const nbands=numBands&&numBands<16?numBands:16
       const bandW=1/nbands
-      const hoverBandStart=Math.floor((1-hoverT)*nbands)/nbands
+      const hoverBandStart=Math.floor(hoverT*nbands)/nbands
       const hy0=ly+hoverBandStart*LH,hbH=bandW*LH
       ctx.save()
       ctx.shadowColor=interp(sc,1-hoverBandStart-bandW*0.5)
@@ -1391,11 +1290,7 @@ function Heatmap({rawGrids,metric,year,theme:t,dark,dotMode,goo,pixelMode,waterm
               border:'1.5px solid #4ade80',borderRadius:1,pointerEvents:'none',
               animation:'livepulse 1.8s ease-in-out infinite',zIndex:5}}/>
           )}
-          {/* Layer 6: metric load overlay */}
-          {(()=>{
-            const pW=size.w-PAD.left-PAD.right,pH=size.h-PAD.top-PAD.bottom
-            return<MetricLoadOverlay metric={metric} active={dataMode==='loading'} plotW={pW} plotH={pH} dark={dark}/>
-          })()}
+
           <div ref={tooltipRef} style={{display:'none',position:'absolute',pointerEvents:'none',
             background:t.tooltip.bg,border:`1px solid ${t.tooltip.border}`,borderRadius:6,
             padding:'8px 12px',fontSize:11,fontFamily:"'DM Mono',monospace",
@@ -2304,17 +2199,25 @@ function drawPixelText(img,text,imgW,imgH,sx,sy){
   })
 }
 
-function YearThumb({year,selected,onClick,metric,region,realCacheRef,dark,thumbW,thumbH,cacheVersion}){
+function YearThumb({year,selected,onClick,metric,region,realCacheRef,dark,thumbW,thumbH,cacheVersion,yearType}){
   const canvasRef=useRef(null)
   const palette=PIXEL_PALETTES_LIGHT[metric]||PIXEL_PALETTES_LIGHT.renewables
-  const trend=NEM_TREND[year]
-  const label=trend!=null?`${trend}%`:''
   useEffect(()=>{
     const canvas=canvasRef.current;if(!canvas)return
     const ctx=canvas.getContext('2d')
-    const cacheKey=`real-${region}-${year}`
-    const grids=realCacheRef?.current?.[cacheKey]||generateSimData(region,365,48,year)
-    const grid=grids[metric]||grids.renewables
+    // Build the grid for this thumb — FY splices July(y-1)→June(y)
+    let grid
+    if(yearType==='FY'){
+      const prevKey=`real-${region}-${year-1}`,curKey=`real-${region}-${year}`
+      const prev=realCacheRef?.current?.[prevKey]||generateSimData(region,365,48,year-1)
+      const cur=realCacheRef?.current?.[curKey]||generateSimData(region,365,48,year)
+      const built=buildFYGrids(prev,cur)
+      grid=(built[metric]||built.renewables)
+    } else {
+      const cacheKey=`real-${region}-${year}`
+      const grids=realCacheRef?.current?.[cacheKey]||generateSimData(region,365,48,year)
+      grid=grids[metric]||grids.renewables
+    }
     const DAYS=365,SLOTS=48
     const dPerCol=DAYS/thumbW,sPerRow=SLOTS/thumbH
     const img=ctx.createImageData(thumbW,thumbH)
@@ -2333,30 +2236,45 @@ function YearThumb({year,selected,onClick,metric,region,realCacheRef,dark,thumbW
       }
     }
     ctx.putImageData(img,0,0)
-    if(year===NOW.year){
-      ctx.fillStyle='rgba(255,255,255,0.7)'
+    // Progress line for current period
+    if(year===NOW.year&&yearType!=='FY'){
+      ctx.fillStyle='rgba(0,0,0,0.5)'
       ctx.fillRect(Math.round((NOW.doy/365)*thumbW),0,1,thumbH)
     }
-  },[year,metric,region,palette,thumbW,thumbH,cacheVersion])
+  },[year,yearType,metric,region,palette,thumbW,thumbH,cacheVersion])
+  const thumbLabel=yearType==='FY'?`FY${String(year).slice(2)}`:String(year)
+  const trend=NEM_TREND[year]
   return(
-    <div onClick={onClick} title={String(year)}
+    <div onClick={onClick} title={thumbLabel}
       style={{cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',gap:2,flexShrink:0}}>
-      <div style={{
-        outline:'1px solid #000000',
+      <div style={{position:'relative',
+        outline:selected?'2px solid #000000':'1px solid #000000',
         outlineOffset:0,
-        boxShadow:selected?'0 2px 0 0 #000000':'none',
+        boxShadow:selected?'0 2px 4px rgba(0,0,0,0.2)':'none',
         transition:'box-shadow 0.12s',
       }}>
         <canvas ref={canvasRef} width={thumbW} height={thumbH} style={{display:'block'}}/>
+        {selected&&trend!=null&&(
+          <div style={{
+            position:'absolute',top:2,left:0,right:0,
+            display:'flex',justifyContent:'center',
+            pointerEvents:'none',
+          }}>
+            <span style={{
+              fontFamily:"'DM Mono',monospace",fontSize:9,letterSpacing:'0.02em',
+              fontWeight:600,color:'rgba(0,0,0,0.75)',lineHeight:1,
+            }}>{trend}%</span>
+          </div>
+        )}
       </div>
-      <span style={{fontFamily:"'DM Mono',monospace",fontSize:8,letterSpacing:'0.02em',
+      <span style={{fontFamily:"'DM Mono',monospace",fontSize:9,letterSpacing:'0.02em',
         color:selected?'#000000':'rgba(0,0,0,0.35)',
-        fontWeight:selected?600:400,transition:'color 0.12s'}}>{year}</span>
+        fontWeight:selected?600:400,transition:'color 0.12s'}}>{thumbLabel}</span>
     </div>
   )
 }
 
-function YearRiver({years,selectedYear,onSelect,metric,region,realCacheRef,dark,theme:t,cacheVersion}){
+function YearRiver({years,selectedYear,onSelect,metric,region,realCacheRef,dark,theme:t,cacheVersion,yearType}){
   const THUMB_W=68,THUMB_H=32
   return(
     <div style={{
@@ -2369,7 +2287,7 @@ function YearRiver({years,selectedYear,onSelect,metric,region,realCacheRef,dark,
       {years.map(y=>(
         <YearThumb key={y} year={y} selected={y===selectedYear}
           onClick={()=>onSelect(y)} metric={metric} region={region}
-          realCacheRef={realCacheRef} dark={dark} cacheVersion={cacheVersion}
+          realCacheRef={realCacheRef} dark={dark} cacheVersion={cacheVersion} yearType={yearType}
           thumbW={THUMB_W} thumbH={THUMB_H}/>
       ))}
     </div>
@@ -2582,13 +2500,6 @@ export default function App(){
   const handleRegion=(r)=>{setRegion(r);setRawGrids(getGrids(r,year));triggerRealFetch(r,year,yearType).then(()=>prefetchAllYears(r))}
   const handleYear=(y)=>{setYear(y);setRawGrids(getGrids(region,y));triggerRealFetch(region,y,yearType)}
   const handleYearType=(yt)=>{setYearType(yt);setRawGrids(getGrids(region,year,yt));triggerRealFetch(region,year,yt)}
-  const handleYearKey=k=>{
-    const parts=k.split('-')
-    const yt=parts[0]
-    const y=Number(parts[1])
-    setYear(y);setYearType(yt);setRawGrids(getGrids(region,y,yt))
-    triggerRealFetch(region,y,yt)
-  }
   const handleGranularity=(g)=>{setGranularity(g)}
 
   const t=dark?themes.dark:themes.light
@@ -2604,10 +2515,9 @@ export default function App(){
     </div>
   )
 
-  const yearKey=`${yearType}-${year}`
-  const yearOptions=[
-    ...YEARS.slice().reverse().map(y=>({value:`CY-${y}`,label:String(y)})),
-    ...YEARS.filter(y=>y>2016).slice().reverse().map(y=>({value:`FY-${y}`,label:`FY${y}`})),
+  const yearTypeOptions=[
+    {value:'CY',label:'Calendar Year'},
+    {value:'FY',label:'Financial Year'},
   ]
 
   // ── Responsive ──────────────────────────────────────────────────────────────
@@ -2689,7 +2599,7 @@ export default function App(){
   const TimeControls=()=>(
     <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
       <Dropdown value={granularity} onChange={handleGranularity} options={GRANULARITIES}/>
-      <Dropdown value={yearKey} onChange={handleYearKey} options={yearOptions}/>
+      <Dropdown value={yearType} onChange={handleYearType} options={yearTypeOptions}/>
     </div>
   )
   const DisplayControls=()=>(
@@ -2784,7 +2694,7 @@ export default function App(){
         </div>
         {viewMode==='energy'&&<RecordsBtn/>}
         {viewMode==='energy'&&<Dropdown value={granularity} onChange={handleGranularity} options={GRANULARITIES}/>}
-        <Dropdown value={yearKey} onChange={handleYearKey} options={yearOptions}/>
+        <Dropdown value={yearType} onChange={handleYearType} options={yearTypeOptions}/>
         {viewMode==='energy'&&<DisplayControls/>}
         {viewMode==='facility'&&<FacilityLayoutToggle/>}
         <DarkBtn/>
@@ -2903,7 +2813,7 @@ export default function App(){
       {/* Year River */}
       {!isMobile&&viewMode==='energy'&&(
         <YearRiver years={YEARS} selectedYear={year} onSelect={y=>handleYear(y)}
-          metric={metric} region={region} realCacheRef={realCache} dark={dark} theme={t} cacheVersion={cacheVersion}/>
+          metric={metric} region={region} realCacheRef={realCache} dark={dark} theme={t} cacheVersion={cacheVersion} yearType={yearType}/>
       )}
 
       {/* Footer */}
