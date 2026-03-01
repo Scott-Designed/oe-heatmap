@@ -2128,10 +2128,9 @@ export default function App(){
           if(r!=='NEM'&&rgn!==r)continue
           for(const[ts,val]of result.data||[]){
             if(typeof val!=='number'||val<=0)continue
-            const d=new Date(ts)
-            const doy=Math.floor((Date.UTC(d.getFullYear(),d.getMonth(),d.getDate())-yearStartUTC)/86400000)
+            const yr=parseInt(ts.slice(0,4)),mo=parseInt(ts.slice(5,7))-1,dy=parseInt(ts.slice(8,10)),hr=parseInt(ts.slice(11,13))
+            const doy=Math.floor((Date.UTC(yr,mo,dy)-yearStartUTC)/86400000)
             if(doy<0||doy>=DAYS)continue
-            const hr=d.getHours()
             for(let s=0;s<2;s++){
               const idx=doy*SLOTS+hr*2+s
               tot[idx]+=val
