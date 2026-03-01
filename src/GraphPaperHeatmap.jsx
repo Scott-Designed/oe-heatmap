@@ -740,7 +740,7 @@ const CY_MONTHS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','No
 const FY_MONTH_STARTS=[0,31,62,92,123,153,184,215,243,274,304,335]
 const FY_MONTHS=['Jul','Aug','Sep','Oct','Nov','Dec','Jan','Feb','Mar','Apr','May','Jun']
 const DOW=['Mon','Tue','Wed','Thu','Fri','Sat','Sun']
-const PAD={top:8,right:16,bottom:64,left:46}
+const PAD={top:8,right:52,bottom:64,left:46}
 const TRAIL_DURATION=750
 const TRAIL_MAX=80
 
@@ -960,48 +960,48 @@ function Heatmap({rawGrids,metric,year,theme:t,dark,dotMode,goo,pixelMode,waterm
     })
 
     const sc=dark?SCALES[metric]:SCALES_LIGHT[metric]
-    const LW=Math.min(300,plotW*0.40),lx=PAD.left+(plotW-LW)/2,ly=h-28
-    // Draw legend with current banding so it previews heatmap
+    // ── Vertical legend on right side ──────────────────────────────────────────
+    const LH=Math.min(220,plotH*0.65)   // legend height
+    const LW=12                          // legend bar width
+    const lx=w-PAD.right+14             // x position (right side)
+    const ly=PAD.top+(plotH-LH)/2       // vertically centered
     const bands=numBands&&numBands<16?numBands:64
     for(let i=0;i<bands;i++){
       const t0=i/bands,t1=(i+1)/bands
-      const x=lx+t0*LW,w2=(t1-t0)*LW+0.5
-      ctx.fillStyle=interp(sc,Math.min(1,t0+0.5/bands))
-      ctx.fillRect(x,ly,w2,14)
+      // Draw top-to-bottom: t0=0 is top (hi value), t1=1 is bottom (lo value)
+      const y=ly+t0*LH,h2=(t1-t0)*LH+0.5
+      ctx.fillStyle=interp(sc,Math.min(1,1-(t0+0.5/bands)))
+      ctx.fillRect(lx,y,LW,h2)
     }
-    ctx.strokeStyle='#000000';ctx.lineWidth=0.5;ctx.strokeRect(lx,ly,LW,14)
-    ctx.fillStyle=t.tickLabel;ctx.textBaseline='middle';const lMid=ly+7
-    ctx.textAlign='right';ctx.fillText(LEGEND[metric].lo,lx-6,lMid)
-    ctx.textAlign='left';ctx.fillText(LEGEND[metric].hi,lx+LW+6,lMid)
-    // Band count label above legend
-    const bLabel=(!numBands||numBands>=16)?'smooth':`${numBands} colours`
-    ctx.font="9px 'DM Mono',monospace";ctx.textAlign='center';ctx.textBaseline='bottom'
-    ctx.fillStyle=t.muted;ctx.fillText(bLabel,lx+LW/2,ly-3)
-    // Drag handle — triangle cursor indicator
-    if(numBands&&numBands<16){
-      const hx=lx+((numBands-2)/14)*LW
-      ctx.fillStyle=dark?'rgba(255,255,255,0.9)':'rgba(0,0,0,0.8)'
-      ctx.beginPath();ctx.moveTo(hx,ly-2);ctx.lineTo(hx-4,ly-8);ctx.lineTo(hx+4,ly-8);ctx.closePath();ctx.fill()
-    }
-    // Hover highlight on legend — brightened band with bracket above
+    ctx.strokeStyle=dark?'rgba(255,255,255,0.3)':'rgba(0,0,0,0.3)';ctx.lineWidth=0.5
+    ctx.strokeRect(lx,ly,LW,LH)
+    // Labels top and bottom
+    ctx.font="9px 'DM Mono',monospace";ctx.fillStyle=t.tickLabel
+    ctx.textAlign='left';ctx.textBaseline='bottom';ctx.fillText(LEGEND[metric].hi,lx+LW+5,ly+2)
+    ctx.textBaseline='top';ctx.fillText(LEGEND[metric].lo,lx+LW+5,ly+LH-2)
+    // Band count label to left of bar
+    const bLabel=(!numBands||numBands>=16)?'smooth':`${numBands}`
+    ctx.save();ctx.translate(lx-4,ly+LH/2);ctx.rotate(-Math.PI/2)
+    ctx.textAlign='center';ctx.textBaseline='bottom';ctx.fillStyle=t.muted
+    ctx.fillText(bLabel,0,0);ctx.restore()
+    // Hover highlight on legend (vertical)
     const hoverT=legendHoverTRef.current
     if(hoverT!==null){
-      const bands=numBands&&numBands<16?numBands:16
-      const bandW=1/bands
-      const hoverBandStart=Math.floor(hoverT*bands)/bands
-      const hx0=lx+hoverBandStart*LW,hbW=bandW*LW
-      // Lifted, slightly taller highlight segment
+      const nbands=numBands&&numBands<16?numBands:16
+      const bandW=1/nbands
+      const hoverBandStart=Math.floor((1-hoverT)*nbands)/nbands
+      const hy0=ly+hoverBandStart*LH,hbH=bandW*LH
       ctx.save()
-      ctx.shadowColor=interp(sc,hoverBandStart+bandW*0.5)
+      ctx.shadowColor=interp(sc,1-hoverBandStart-bandW*0.5)
       ctx.shadowBlur=8
-      ctx.fillStyle=interp(sc,hoverBandStart+bandW*0.5)
-      ctx.fillRect(hx0,ly-3,hbW,20)
+      ctx.fillStyle=interp(sc,1-hoverBandStart-bandW*0.5)
+      ctx.fillRect(lx-3,hy0,LW+6,hbH)
       ctx.restore()
       ctx.strokeStyle=dark?'rgba(255,255,255,0.9)':'rgba(0,0,0,0.8)'
-      ctx.lineWidth=1.5;ctx.strokeRect(hx0,ly-3,hbW,20)
+      ctx.lineWidth=1.5;ctx.strokeRect(lx-3,hy0,LW+6,hbH)
     }
-    // Store legend bounds for mouse handler
-    legendBoundsRef.current={lx,ly,LW}
+    // Store legend bounds for mouse handler (using LH as "LW" so drag still works)
+    legendBoundsRef.current={lx,ly,LW:LH,vertical:true}
   },[redrawKey,grids,metric,size,t,dark,dotMode,goo,numBands,watermarkMode,ausMask,cols,rows,granularity,year,yearType,startDow,paintDots,legendHoverTRef])
 
   // ── Goo canvas (only active when dotMode && goo>0) ────────────────────────────
@@ -1119,13 +1119,13 @@ function Heatmap({rawGrids,metric,year,theme:t,dark,dotMode,goo,pixelMode,waterm
   const applyLegendDrag=useCallback((e)=>{
     const canvas=canvasRef.current;if(!canvas||!legendBoundsRef.current)return false
     const rect=canvas.getBoundingClientRect()
-    const{lx,ly,LW}=legendBoundsRef.current
+    const{lx,ly,LW:LH}=legendBoundsRef.current
     const mx=e.clientX-rect.left,my=e.clientY-rect.top
-    // Hit zone: full width of legend bar, plus generous vertical margin for grabbing
-    if(mx>=lx-4&&mx<=lx+LW+4&&my>=ly-14&&my<=ly+20){
-      const t=Math.max(0,Math.min(1,(mx-lx)/LW))
-      // Map 0→1 to 2→16 bands (left=2 flat colours, right=smooth)
-      const bands=t>=0.93?null:Math.max(2,Math.round(2+t*(14/0.93)))
+    // Vertical legend hit zone
+    if(mx>=lx-6&&mx<=lx+18&&my>=ly-4&&my<=ly+LH+4){
+      const t=Math.max(0,Math.min(1,(my-ly)/LH))
+      // Map 0(top=hi)→1(bot=lo) to bands: top=smooth, bottom=2 colours
+      const bands=t<=0.07?null:Math.max(2,Math.round(2+(1-t)*(14/0.93)))
       onNumBandsChange&&onNumBandsChange(bands)
       return true
     }
@@ -1150,13 +1150,13 @@ function Heatmap({rawGrids,metric,year,theme:t,dark,dotMode,goo,pixelMode,waterm
 
     // Change cursor + set hover band when over legend
     if(legendBoundsRef.current){
-      const{lx,ly,LW}=legendBoundsRef.current
+      const{lx,ly,LW:LH}=legendBoundsRef.current
       const mx=e.clientX-rect.left,my=e.clientY-rect.top
-      if(mx>=lx-4&&mx<=lx+LW+4&&my>=ly-14&&my<=ly+20){
-        canvas.style.cursor='ew-resize'
+      if(mx>=lx-6&&mx<=lx+18&&my>=ly-4&&my<=ly+LH+4){
+        canvas.style.cursor='ns-resize'
         tip.style.display='none'
         setHoverCell(null)
-        const newT=Math.max(0,Math.min(0.9999,(mx-lx)/LW))
+        const newT=Math.max(0,Math.min(0.9999,(my-ly)/LH))
         if(legendHoverTRef.current!==newT){
           legendHoverTRef.current=newT
           setRedrawKey(k=>k+1)
@@ -2050,6 +2050,111 @@ const METRICS=[
   {value:'battery',   label:'Battery dispatch',  shortLabel:'battery'},
 ]
 const GRANULARITIES=[{value:'30min',label:'30 min'},{value:'hourly',label:'Hourly'},{value:'daily',label:'Daily'},{value:'weekly',label:'Weekly'}]
+
+// ── Year River ────────────────────────────────────────────────────────────────
+function hexToRgb(hex){
+  return[parseInt(hex.slice(1,3),16),parseInt(hex.slice(3,5),16),parseInt(hex.slice(5,7),16)]
+}
+function paletteColor(palette,v100){
+  for(const[thr,hex]of palette)if(v100<=thr)return hexToRgb(hex)
+  return hexToRgb(palette[palette.length-1][1])
+}
+
+const NEM_TREND={2010:19,2011:18,2012:18,2013:17,2014:18,2015:19,2016:21,2017:22,2018:24,2019:27,2020:29,2021:30,2022:35,2023:38,2024:41,2025:44,2026:46}
+
+function drawPixelText(img,text,imgW,imgH,sx,sy){
+  const chars=text.toUpperCase().split('')
+  const charW=5,gap=1,totalW=chars.length*(charW+gap)-gap
+  const ox=Math.floor((imgW-totalW*sx)/2)
+  const oy=imgH-7*sy-2
+  chars.forEach((ch,ci)=>{
+    const glyph=FONT5[ch]||FONT5[' ']
+    glyph.forEach((row,ry)=>{
+      for(let bx=0;bx<5;bx++){
+        if(!(row>>(4-bx)&1))continue
+        for(let pr=0;pr<sy;pr++)for(let pc=0;pc<sx;pc++){
+          const px=ox+ci*(charW+gap)*sx+bx*sx+pc
+          const py=oy+ry*sy+pr
+          if(px<0||px>=imgW||py<0||py>=imgH)continue
+          const i=(py*imgW+px)*4
+          img.data[i]=255;img.data[i+1]=255;img.data[i+2]=255;img.data[i+3]=200
+        }
+      }
+    })
+  })
+}
+
+function YearThumb({year,selected,onClick,metric,region,realCacheRef,dark,thumbW,thumbH}){
+  const canvasRef=useRef(null)
+  const palette=PIXEL_PALETTES_LIGHT[metric]||PIXEL_PALETTES_LIGHT.renewables
+  const trend=NEM_TREND[year]
+  const label=trend!=null?`${trend}%`:''
+  useEffect(()=>{
+    const canvas=canvasRef.current;if(!canvas)return
+    const ctx=canvas.getContext('2d')
+    const cacheKey=`real-${region}-${year}`
+    const grids=realCacheRef?.current?.[cacheKey]||generateSimData(region,365,48,year)
+    const grid=grids[metric]||grids.renewables
+    const DAYS=365,SLOTS=48
+    const dPerCol=DAYS/thumbW,sPerRow=SLOTS/thumbH
+    const img=ctx.createImageData(thumbW,thumbH)
+    for(let px=0;px<thumbW;px++){
+      for(let py=0;py<thumbH;py++){
+        const d0=Math.floor(px*dPerCol),d1=Math.ceil((px+1)*dPerCol)
+        const s0=Math.floor(py*sPerRow),s1=Math.ceil((py+1)*sPerRow)
+        let sum=0,cnt=0
+        for(let d=d0;d<d1&&d<DAYS;d++)for(let s=s0;s<s1&&s<SLOTS;s++){
+          const v=grid[d*SLOTS+s];if(v>=0){sum+=v;cnt++}
+        }
+        const avg=cnt>0?sum/cnt:0
+        const[r,g,b]=paletteColor(palette,avg)
+        const i=(py*thumbW+px)*4
+        img.data[i]=r;img.data[i+1]=g;img.data[i+2]=b;img.data[i+3]=255
+      }
+    }
+    ctx.putImageData(img,0,0)
+    if(year===NOW.year){
+      ctx.fillStyle='rgba(255,255,255,0.7)'
+      ctx.fillRect(Math.round((NOW.doy/365)*thumbW),0,1,thumbH)
+    }
+  },[year,metric,region,palette,thumbW,thumbH])
+  return(
+    <div onClick={onClick} title={String(year)}
+      style={{cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',gap:2,flexShrink:0}}>
+      <div style={{
+        outline:'1px solid #000000',
+        outlineOffset:0,
+        boxShadow:selected?'0 2px 0 0 #000000':'none',
+        transition:'box-shadow 0.12s',
+      }}>
+        <canvas ref={canvasRef} width={thumbW} height={thumbH} style={{display:'block'}}/>
+      </div>
+      <span style={{fontFamily:"'DM Mono',monospace",fontSize:8,letterSpacing:'0.02em',
+        color:selected?'#000000':'rgba(0,0,0,0.35)',
+        fontWeight:selected?600:400,transition:'color 0.12s'}}>{year}</span>
+    </div>
+  )
+}
+
+function YearRiver({years,selectedYear,onSelect,metric,region,realCacheRef,dark,theme:t}){
+  const THUMB_W=68,THUMB_H=32
+  return(
+    <div style={{
+      display:'flex',alignItems:'flex-end',gap:0,
+      padding:'8px 20px 8px',
+      flexShrink:0,
+      background:'#ffffff',
+      justifyContent:'center',
+    }}>
+      {years.map(y=>(
+        <YearThumb key={y} year={y} selected={y===selectedYear}
+          onClick={()=>onSelect(y)} metric={metric} region={region}
+          realCacheRef={realCacheRef} dark={dark}
+          thumbW={THUMB_W} thumbH={THUMB_H}/>
+      ))}
+    </div>
+  )
+}
 const YEARS=Array.from({length:NOW.year-2009},(_,i)=>2010+i)
 
 export default function App(){
@@ -2525,8 +2630,14 @@ export default function App(){
         })()}
       </div>
 
+      {/* Year River */}
+      {!isMobile&&viewMode==='energy'&&(
+        <YearRiver years={YEARS} selectedYear={year} onSelect={y=>handleYear(y)}
+          metric={metric} region={region} realCacheRef={realCache} dark={dark} theme={t}/>
+      )}
+
       {/* Footer */}
-      <div style={{fontFamily:"'DM Mono',monospace",fontSize:10,color:t.muted,padding:'8px 24px',borderTop:`1px solid ${t.border}`,display:'flex',justifyContent:'flex-end',alignItems:'center',flexShrink:0}}>
+      <div style={{fontFamily:"'DM Mono',monospace",fontSize:10,color:t.muted,padding:'5px 24px',borderTop:`1px solid ${t.border}`,display:'flex',justifyContent:'flex-end',alignItems:'center',flexShrink:0}}>
         <span style={{opacity:0.4}}>NEM data via Open Electricity (CC BY-NC 4.0)</span>
       </div>
     </div>
