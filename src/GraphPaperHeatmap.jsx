@@ -2107,12 +2107,14 @@ export default function App(){
     const sol=new Float64Array(DAYS*SLOTS),wnd=new Float64Array(DAYS*SLOTS)
     const gas=new Float64Array(DAYS*SLOTS),coa=new Float64Array(DAYS*SLOTS)
     const bat=new Float64Array(DAYS*SLOTS),fos=new Float64Array(DAYS*SLOTS)
-    const quarters=[['01-01','03-31'],['04-01','06-30'],['07-01','09-30'],['10-01','12-31']]
-    for(const[qs,qe]of quarters){
+    const maxMonth=y===NOW.year?NOW.month:12
+    for(let m=1;m<=maxMonth;m++){
+      const pad=n=>String(n).padStart(2,'0')
+      const days=new Date(y,m,0).getDate()
       const params=new URLSearchParams({
         metrics:'energy',interval:'1h',
-        date_start:`${y}-${qs}T00:00:00`,
-        date_end:`${y}-${qe}T23:00:00`,
+        date_start:`${y}-${pad(m)}-01T00:00:00`,
+        date_end:`${y}-${pad(m)}-${pad(days)}T23:00:00`,
         primary_grouping:'network_region',
         secondary_grouping:'fueltech_group',
       })
