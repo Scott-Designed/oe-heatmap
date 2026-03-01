@@ -2492,8 +2492,30 @@ export default function App(){
     triggerRealFetch('NEM',NOW.year,'CY').then(()=>prefetchAllYears('NEM'))
   },[])
 
-  const handleYearHover=(y)=>{setHoveredYear(y);setRawGrids(getGrids(region,y))}
-  const handleYearHoverEnd=()=>{setHoveredYear(null);setRawGrids(getGrids(region,year))}
+  const handleYearHover=(y)=>{
+    setHoveredYear(y)
+    const realKey=yearType==='FY'?`real-FY-${region}-${y}`:`real-${region}-${y}`
+    if(realCache.current[realKey]){
+      setRawGrids(realCache.current[realKey])
+    } else if(yearType==='FY'){
+      const prev=realCache.current[`real-${region}-${y-1}`]
+      const cur=realCache.current[`real-${region}-${y}`]
+      if(prev&&cur){
+        const built=buildFYGrids(prev,cur)
+        realCache.current[realKey]=built
+        setRawGrids(built)
+      } else {
+        setRawGrids(getGrids(region,y))
+      }
+    } else {
+      setRawGrids(getGrids(region,y))
+    }
+  }
+  const handleYearHoverEnd=()=>{
+    setHoveredYear(null)
+    const realKey=yearType==='FY'?`real-FY-${region}-${year}`:`real-${region}-${year}`
+    setRawGrids(realCache.current[realKey]||getGrids(region,year))
+  }
   const handleRegion=(r)=>{setRegion(r);setRawGrids(getGrids(r,year));triggerRealFetch(r,year,yearType).then(()=>prefetchAllYears(r))}
   const handleYear=(y)=>{setYear(y);setRawGrids(getGrids(region,y));triggerRealFetch(region,y,yearType)}
   const handleYearType=(yt)=>{setYearType(yt);setRawGrids(getGrids(region,year,yt));triggerRealFetch(region,year,yt)}
