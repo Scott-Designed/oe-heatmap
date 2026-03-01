@@ -1540,7 +1540,7 @@ function FacilityGrid({region,theme:t,dark,layout='horizontal'}){
 
   // Start/stop RAF loop for bubbles
   useEffect(()=>{
-    if(layout!=='bubbles'&&layout!=='wordcloud'){
+    if(layout!=='bubbles'){
       if(rafRef.current)cancelAnimationFrame(rafRef.current)
       rafRef.current=null
       physicsRef.current=null
@@ -1862,7 +1862,11 @@ function FacilityGrid({region,theme:t,dark,layout='horizontal'}){
     const{w,h}=size
     canvas.width=w;canvas.height=h
     const ctx=canvas.getContext('2d')
-    ctx.fillStyle=t.canvasBg;ctx.fillRect(0,0,w,h)
+    const pW=w-PAD.left-PAD.right,pH=h-PAD.top-PAD.bottom
+
+    // Background
+    ctx.fillStyle=t.canvas;ctx.fillRect(0,0,w,h)
+    ctx.fillStyle=t.canvasBg;ctx.fillRect(PAD.left,PAD.top,pW,pH)
 
     const facs=FACILITIES.filter(f=>region==='NEM'||f.region===region)
       .slice().sort((a,b)=>b.mw-a.mw)
@@ -1871,81 +1875,78 @@ function FacilityGrid({region,theme:t,dark,layout='horizontal'}){
     const maxMW=facs[0].mw
     const minMW=facs[facs.length-1].mw
 
-    // Occupancy grid for collision detection
-    const OCC_SCALE=4
-    const occW=Math.ceil(w/OCC_SCALE),occH=Math.ceil(h/OCC_SCALE)
+    // Occupancy grid — fine resolution for tight packing
+    const OCC_SCALE=2
+    const ox0=PAD.left,oy0=PAD.top
+    const occW=Math.ceil(pW/OCC_SCALE),occH=Math.ceil(pH/OCC_SCALE)
     const occ=new Uint8Array(occW*occH)
     const markOcc=(x0,y0,x1,y1)=>{
-      const gx0=Math.max(0,Math.floor(x0/OCC_SCALE)-1)
-      const gy0=Math.max(0,Math.floor(y0/OCC_SCALE)-1)
-      const gx1=Math.min(occW-1,Math.ceil(x1/OCC_SCALE)+1)
-      const gy1=Math.min(occH-1,Math.ceil(y1/OCC_SCALE)+1)
+      const gx0=Math.max(0,Math.floor((x0-ox0)/OCC_SCALE)-1)
+      const gy0=Math.max(0,Math.floor((y0-oy0)/OCC_SCALE)-1)
+      const gx1=Math.min(occW-1,Math.ceil((x1-ox0)/OCC_SCALE)+1)
+      const gy1=Math.min(occH-1,Math.ceil((y1-oy0)/OCC_SCALE)+1)
       for(let gy=gy0;gy<=gy1;gy++)for(let gx=gx0;gx<=gx1;gx++)occ[gy*occW+gx]=1
     }
     const testOcc=(x0,y0,x1,y1)=>{
-      const gx0=Math.max(0,Math.floor(x0/OCC_SCALE))
-      const gy0=Math.max(0,Math.floor(y0/OCC_SCALE))
-      const gx1=Math.min(occW-1,Math.ceil(x1/OCC_SCALE))
-      const gy1=Math.min(occH-1,Math.ceil(y1/OCC_SCALE))
+      const gx0=Math.max(0,Math.floor((x0-ox0)/OCC_SCALE))
+      const gy0=Math.max(0,Math.floor((y0-oy0)/OCC_SCALE))
+      const gx1=Math.min(occW-1,Math.ceil((x1-ox0)/OCC_SCALE))
+      const gy1=Math.min(occH-1,Math.ceil((y1-oy0)/OCC_SCALE))
       for(let gy=gy0;gy<=gy1;gy++)for(let gx=gx0;gx<=gx1;gx++)if(occ[gy*occW+gx])return true
       return false
     }
 
-    const PAD_X=40,PAD_Y=24
-    const cx=w/2,cy=h/2
-    const placed=[]
+    const cx=PAD.left+pW/2,cy=PAD.top+pH/2
+    const MARGIN=2
+    const charW=5,charGap=1,charH=7
 
     facs.forEach(f=>{
-      const t01=(f.mw-minMW)/(maxMW-minMW+1)
-      // Scale 1..4 based on MW
-      const scale=Math.max(1,Math.min(4,Math.round(1+t01*3)))
-      const charW=5,gap=1,charH=7
+      const t01=Math.pow((f.mw-minMW)/(maxMW-minMW+1),0.5)
+      // Scale 2..8 — much larger to fill the space
+      const scale=Math.max(2,Math.min(8,Math.round(2+t01*6)))
       const name=f.name.toUpperCase()
-      const chars=name.length
-      const tw=(chars*(charW+gap)-gap)*scale
+      const tw=(name.length*(charW+charGap)-charGap)*scale
       const th=charH*scale
 
-      // Spiral search for a free spot
+      // Tight spiral — small step increments so words pack close
       let placed_=false
-      const STEP=Math.PI*0.15
-      for(let r=0;r<Math.max(w,h)*0.7;r+=scale*1.5){
-        for(let a=0;a<Math.PI*2;a+=STEP/(r/10+1)){
-          const px=cx+r*Math.cos(a)-tw/2
-          const py=cy+r*Math.sin(a)-th/2
-          if(px<PAD_X||py<PAD_Y||px+tw>w-PAD_X||py+th>h-PAD_Y)continue
-          if(testOcc(px-2,py-2,px+tw+2,py+th+2))continue
-          // Place it
-          markOcc(px-3,py-3,px+tw+3,py+th+3)
-          placed.push({f,px,py,scale,tw,th})
-          placed_=true;break
+      const maxR=Math.max(pW,pH)*0.6
+      for(let r=0;r<maxR&&!placed_;r+=Math.max(1,scale*0.6)){
+        const steps=Math.max(8,Math.round(2*Math.PI*Math.max(r,1)/(scale*2)))
+        for(let si=0;si<steps&&!placed_;si++){
+          const a=(si/steps)*Math.PI*2
+          const px=Math.round(cx+r*Math.cos(a)-tw/2)
+          const py=Math.round(cy+r*Math.sin(a)-th/2)
+          // Must stay inside plot area
+          if(px<PAD.left+MARGIN||py<PAD.top+MARGIN||px+tw>PAD.left+pW-MARGIN||py+th>PAD.top+pH-MARGIN)continue
+          if(testOcc(px-1,py-1,px+tw+1,py+th+1))continue
+          markOcc(px-1,py-1,px+tw+1,py+th+1)
+          // Draw the word
+          const color=facilityColor(f.fueltech)
+          name.split('').forEach((ch,ci)=>{
+            const glyph=FONT5[ch]||FONT5[' ']
+            glyph.forEach((row,ry)=>{
+              for(let bx=0;bx<5;bx++){
+                if(!(row>>(4-bx)&1))continue
+                ctx.fillStyle=color
+                ctx.fillRect(
+                  px+ci*(charW+charGap)*scale+bx*scale,
+                  py+ry*scale,
+                  scale,scale
+                )
+              }
+            })
+          })
+          placed_=true
         }
-        if(placed_)break
       }
     })
 
-    // Draw placed words
-    placed.forEach(({f,px,py,scale})=>{
-      const color=facilityColor(f.fueltech)
-      const name=f.name.toUpperCase()
-      const sx=scale,sy=scale
-      const charW=5,gap=1
-      name.split('').forEach((ch,ci)=>{
-        const glyph=FONT5[ch]||FONT5[' ']
-        glyph.forEach((row,ry)=>{
-          for(let bx=0;bx<5;bx++){
-            if(!(row>>(4-bx)&1))continue
-            ctx.fillStyle=color
-            ctx.fillRect(
-              Math.round(px+ci*(charW+gap)*sx+bx*sx),
-              Math.round(py+ry*sy),
-              sx,sy
-            )
-          }
-        })
-      })
-    })
+    // Frame — same as bubble/grid views
+    ctx.strokeStyle=dark?t.border:'#000000';ctx.lineWidth=1
+    ctx.strokeRect(PAD.left,PAD.top,pW,pH)
 
-    // Draw fueltech legend bottom left
+    // Fueltech legend bottom left
     const seen=new Set();let lx=PAD.left,ly=h-18
     ctx.font="10px 'DM Mono',monospace";ctx.textBaseline='middle'
     facs.forEach(f=>{
@@ -1959,6 +1960,7 @@ function FacilityGrid({region,theme:t,dark,layout='horizontal'}){
       if(lx>w-120)return
     })
   },[layout,size,region,t,dark])
+
 
   return(
     <div ref={containerRef} style={{width:'100%',height:'100%',position:'relative'}}>
@@ -2192,7 +2194,7 @@ function drawPixelText(img,text,imgW,imgH,sx,sy){
   })
 }
 
-function YearThumb({year,selected,onClick,metric,region,realCacheRef,dark,thumbW,thumbH}){
+function YearThumb({year,selected,onClick,metric,region,realCacheRef,dark,thumbW,thumbH,cacheVersion}){
   const canvasRef=useRef(null)
   const palette=PIXEL_PALETTES_LIGHT[metric]||PIXEL_PALETTES_LIGHT.renewables
   const trend=NEM_TREND[year]
@@ -2225,7 +2227,7 @@ function YearThumb({year,selected,onClick,metric,region,realCacheRef,dark,thumbW
       ctx.fillStyle='rgba(255,255,255,0.7)'
       ctx.fillRect(Math.round((NOW.doy/365)*thumbW),0,1,thumbH)
     }
-  },[year,metric,region,palette,thumbW,thumbH])
+  },[year,metric,region,palette,thumbW,thumbH,cacheVersion])
   return(
     <div onClick={onClick} title={String(year)}
       style={{cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',gap:2,flexShrink:0}}>
@@ -2244,7 +2246,7 @@ function YearThumb({year,selected,onClick,metric,region,realCacheRef,dark,thumbW
   )
 }
 
-function YearRiver({years,selectedYear,onSelect,metric,region,realCacheRef,dark,theme:t}){
+function YearRiver({years,selectedYear,onSelect,metric,region,realCacheRef,dark,theme:t,cacheVersion}){
   const THUMB_W=68,THUMB_H=32
   return(
     <div style={{
@@ -2257,7 +2259,7 @@ function YearRiver({years,selectedYear,onSelect,metric,region,realCacheRef,dark,
       {years.map(y=>(
         <YearThumb key={y} year={y} selected={y===selectedYear}
           onClick={()=>onSelect(y)} metric={metric} region={region}
-          realCacheRef={realCacheRef} dark={dark}
+          realCacheRef={realCacheRef} dark={dark} cacheVersion={cacheVersion}
           thumbW={THUMB_W} thumbH={THUMB_H}/>
       ))}
     </div>
@@ -2281,9 +2283,10 @@ export default function App(){
   const[yearType,setYearType]=useState('CY')
   const[granularity,setGranularity]=useState('30min')
   const[rawGrids,setRawGrids]=useState(null)
-  const[dataMode,setDataMode]=useState('sim') // 'sim'|'loading'|'real'|'error'
+  const[dataMode,setDataMode]=useState('loading') // 'sim'|'loading'|'real'|'error'
   const cache=useRef({})
   const realCache=useRef({})
+  const[cacheVersion,setCacheVersion]=useState(0)
   const fetchAbort=useRef(null)
 
   const getCYGrids=(r,y)=>{
@@ -2329,8 +2332,6 @@ export default function App(){
         metrics:'energy',interval:'1h',
         date_start:`${y}-${pad(m)}-01T00:00:00`,
         date_end:`${y}-${pad(m)}-${pad(days)}T23:00:00`,
-        primary_grouping:'network_region',
-        secondary_grouping:'fueltech_group',
         primary_grouping:'network_region',
         secondary_grouping:'fueltech_group',
       })
@@ -2391,6 +2392,14 @@ export default function App(){
   }
 
   const triggerRealFetch=async(r,y,yt)=>{
+    // If already cached, use it immediately — no fetch needed
+    const cachedKey=yt==='FY'?`real-FY-${r}-${y}`:`real-${r}-${y}`
+    if(realCache.current[cachedKey]){
+      setRawGrids(realCache.current[cachedKey])
+      setDataMode('real')
+      return
+    }
+    // Abort any in-flight request and start a new one
     if(fetchAbort.current)fetchAbort.current.abort()
     fetchAbort.current=new AbortController()
     const{signal}=fetchAbort.current
@@ -2410,6 +2419,7 @@ export default function App(){
       }
       setRawGrids(grids)
       setDataMode('real')
+      setCacheVersion(v=>v+1)
     }catch(e){
       if(e.name==='AbortError')return
       console.warn('Real data fetch failed, keeping sim:',e.message)
@@ -2751,7 +2761,7 @@ export default function App(){
       {/* Year River */}
       {!isMobile&&viewMode==='energy'&&(
         <YearRiver years={YEARS} selectedYear={year} onSelect={y=>handleYear(y)}
-          metric={metric} region={region} realCacheRef={realCache} dark={dark} theme={t}/>
+          metric={metric} region={region} realCacheRef={realCache} dark={dark} theme={t} cacheVersion={cacheVersion}/>
       )}
 
       {/* Footer */}
