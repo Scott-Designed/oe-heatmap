@@ -749,7 +749,7 @@ const NOW=(()=>{
   const n=new Date(),s=new Date(n.getFullYear(),0,1)
   const doy=Math.floor((n-s)/86400000)
   const slot=n.getHours()*2+Math.floor(n.getMinutes()/30)
-  return{year:n.getFullYear(),doy,slot}
+  return{year:n.getFullYear(),month:n.getMonth()+1,day:n.getDate(),doy,slot}
 })()
 
 // ── Heatmap ───────────────────────────────────────────────────────────────────
@@ -2110,11 +2110,14 @@ export default function App(){
     const maxMonth=y===NOW.year?NOW.month:12
     for(let m=1;m<=maxMonth;m++){
       const pad=n=>String(n).padStart(2,'0')
-      const days=new Date(y,m,0).getDate()
+      const isCurrentMonth=(y===NOW.year&&m===NOW.month)
+      const days=isCurrentMonth?NOW.day:new Date(y,m,0).getDate()
       const params=new URLSearchParams({
         metrics:'energy',interval:'1h',
         date_start:`${y}-${pad(m)}-01T00:00:00`,
         date_end:`${y}-${pad(m)}-${pad(days)}T23:00:00`,
+        primary_grouping:'network_region',
+        secondary_grouping:'fueltech_group',
         primary_grouping:'network_region',
         secondary_grouping:'fueltech_group',
       })
